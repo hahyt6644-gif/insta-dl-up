@@ -17,34 +17,36 @@ export default async function handler(req, res) {
 
         const buffer = Buffer.from(response.data);
 
-        // 2. Build multipart form
+        // 2. Build multipart form for Litterbox
         const form = new FormData();
         form.append('reqtype', 'fileupload');
+        form.append('time', '72h'); // options: 1h, 12h, 24h, 72h
         form.append('fileToUpload', buffer, {
             filename: fileName || 'video.mp4',
             contentType: 'video/mp4'
         });
 
-        // 3. Post the form OBJECT directly — not form.getBuffer()
-        const catboxResponse = await axios.post(
-            'https://catbox.moe/user/api.php',
-            form,                        // ✅ stream the form, don't flatten it
+        // 3. Post to Litterbox endpoint
+        const uploadResponse = await axios.post(
+            'https://litterbox.catbox.moe/resources/internals/api.php',
+            form,
             {
                 headers: {
-                    ...form.getHeaders(), // lets form-data set the correct boundary
+                    ...form.getHeaders()
                 },
-                maxBodyLength: Infinity,  // prevent axios from cutting off large files
+                maxBodyLength: Infinity,
                 maxContentLength: Infinity,
                 timeout: 60000
             }
         );
 
-        const result = catboxResponse.data.toString().trim();
+        const result = uploadResponse.data.toString().trim();
 
+        // 4. Validate response is a URL
         if (!result.startsWith('https://files.catbox.moe/')) {
             return res.status(422).json({
                 status: 'API_REJECTION',
-                catbox_response: result,
+                litterbox_response: result,
                 debug_info: {
                     file_size_bytes: buffer.length,
                     content_type_header: form.getHeaders()['content-type']
