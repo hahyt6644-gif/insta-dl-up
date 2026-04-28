@@ -1,43 +1,41 @@
-const axios = require('axios');
-const FormData = require('form-data');
+import fetch from 'node-fetch';
+import FormData from 'form-data';
 
 export default async function handler(req, res) {
     const { videoUrl, fileName } = req.query;
 
     if (!videoUrl) {
-        return res.status(400).json({ error: "Missing videoUrl" });
+        return res.status(400).send("Error: Missing videoUrl parameter.");
     }
 
     try {
-        // 1. Download video from Instagram into memory
-        const videoResponse = await axios({
-            url: videoUrl,
-            method: 'GET',
-            responseType: 'arraybuffer',
-            timeout: 8000, // Stay within Vercel's execution limit
+        // 1. Fetch the video stream from Instagram
+        const response = await fetch(videoUrl, {
             headers: { 'User-Agent': 'Mozilla/5.0' }
         });
 
-        // 2. Prepare Catbox Upload
+        if (!response.ok) throw new Error(`Instagram Download Failed: ${response.statusText}`);
+
+        // 2. Prepare the multipart form for Catbox
         const form = new FormData();
         form.append('reqtype', 'fileupload');
-        form.append('fileToUpload', videoResponse.data, {
+        form.append('fileToUpload', response.body, {
             filename: fileName || 'video.mp4',
             contentType: 'video/mp4',
         });
 
-        // 3. Push to Catbox
-        const catboxResponse = await axios.post('https://catbox.moe/user/api.php', form, {
+        // 3. Pipe the stream directly to Catbox
+        const catboxResponse = await fetch('https://catbox.moe/user/api.php', {
+            method: 'POST',
+            body: form,
             headers: form.getHeaders(),
         });
 
-        return res.status(200).send(catboxResponse.data);
+        const result = await catboxResponse.text();
+        return res.status(200).send(result.trim());
+
     } catch (error) {
-        return res.status(500).json({ 
-            error: "Proxy Failed", 
-            message: error.message,
-            details: error.response ? error.response.data.toString() : null
-        });
+        console.error("Proxy Error:", error.message);
+        return res.status(500).send(`Proxy Error: ${error.message}`);
     }
 }
-  
