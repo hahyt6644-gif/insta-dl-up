@@ -7,7 +7,7 @@ export default async function handler(req, res) {
     if (!videoUrl) return res.status(400).send("Error: Missing videoUrl");
 
     try {
-        // 1. Fetch video
+        // 1. Fetch video from source
         const response = await axios({
             url: videoUrl,
             method: 'GET',
@@ -17,36 +17,30 @@ export default async function handler(req, res) {
 
         const buffer = Buffer.from(response.data);
 
-        // 2. Build multipart form for Litterbox
+        // 2. Build multipart form for 0x0.st
         const form = new FormData();
-        form.append('reqtype', 'fileupload');
-        form.append('time', '72h'); // options: 1h, 12h, 24h, 72h
-        form.append('fileToUpload', buffer, {
+        form.append('file', buffer, {
             filename: fileName || 'video.mp4',
             contentType: 'video/mp4'
         });
 
-        // 3. Post to Litterbox endpoint
-        const uploadResponse = await axios.post(
-            'https://litterbox.catbox.moe/resources/internals/api.php',
-            form,
-            {
-                headers: {
-                    ...form.getHeaders()
-                },
-                maxBodyLength: Infinity,
-                maxContentLength: Infinity,
-                timeout: 60000
-            }
-        );
+        // 3. Upload to 0x0.st (allows cloud/server IPs, no auth needed)
+        const uploadResponse = await axios.post('https://0x0.st', form, {
+            headers: {
+                ...form.getHeaders()
+            },
+            maxBodyLength: Infinity,
+            maxContentLength: Infinity,
+            timeout: 60000
+        });
 
         const result = uploadResponse.data.toString().trim();
 
-        // 4. Validate response is a URL
-        if (!result.startsWith('https://files.catbox.moe/')) {
+        // 4. Validate we got a URL back
+        if (!result.startsWith('https://')) {
             return res.status(422).json({
                 status: 'API_REJECTION',
-                litterbox_response: result,
+                response: result,
                 debug_info: {
                     file_size_bytes: buffer.length,
                     content_type_header: form.getHeaders()['content-type']
