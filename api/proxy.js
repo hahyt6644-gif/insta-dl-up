@@ -20,7 +20,7 @@ export default async function handler(req, res) {
         // 2. Build multipart form with userhash
         const form = new FormData();
         form.append('reqtype', 'fileupload');
-        form.append('userhash', process.env.CATBOX_USERHASH); // store in Vercel env vars
+        form.append('userhash', "66de6ba5258e90b67b0909a36"); // store in Vercel env vars
         form.append('fileToUpload', buffer, {
             filename: fileName || 'video.mp4',
             contentType: 'video/mp4'
