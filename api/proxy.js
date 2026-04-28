@@ -7,47 +7,58 @@ export default async function handler(req, res) {
     if (!videoUrl) return res.status(400).send("Error: Missing videoUrl");
 
     try {
-        // 1. Download video into a Buffer
+        // 1. Download video from the source
         const response = await axios({
             url: videoUrl,
             method: 'GET',
             responseType: 'arraybuffer',
             headers: { 
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' 
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' 
             },
             timeout: 10000 
         });
 
         const buffer = Buffer.from(response.data);
 
-        // 2. Prepare the Form
+        // 2. Construct the Form with strict ordering
         const form = new FormData();
+        // reqtype MUST be "fileupload"
         form.append('reqtype', 'fileupload');
         form.append('fileToUpload', buffer, {
             filename: fileName || 'video.mp4',
             contentType: 'video/mp4'
         });
 
-        // 3. Post to Catbox with cleaner headers
-        const catboxResponse = await axios.post('https://catbox.moe/user/api.php', form, {
+        // 3. Post using getBuffer() to guarantee the multipart boundary
+        const catboxResponse = await axios.post('https://catbox.moe/user/api.php', form.getBuffer(), {
             headers: {
                 ...form.getHeaders(),
-                // Using a real browser User-Agent to avoid 412/security blocks
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                // Explicitly disable the "Expect" header which can cause 412 errors
-                'Expect': ''
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Connection': 'keep-alive'
             },
             maxContentLength: Infinity,
             maxBodyLength: Infinity,
-            timeout: 25000 
+            timeout: 30000 
         });
 
         const result = catboxResponse.data.toString().trim();
-        return res.status(200).send(result);
+        
+        if (result.includes("https://files.catbox.moe/")) {
+            return res.status(200).send(result);
+        } else {
+            return res.status(422).json({
+                error: "Catbox Rejected Request",
+                raw: result,
+                debug: {
+                    sent_reqtype: "fileupload",
+                    received_size: buffer.length
+                }
+            });
+        }
 
     } catch (error) {
-        console.error("Proxy Error:", error.message);
-        const errorDetail = error.response ? error.response.data.toString() : error.message;
-        return res.status(error.response ? error.response.status : 500).send(`Proxy Error: ${errorDetail}`);
+        const status = error.response ? error.response.status : 500;
+        const msg = error.response ? error.response.data.toString() : error.message;
+        return res.status(status).send(`Proxy Error: ${msg}`);
     }
 }
