@@ -17,20 +17,18 @@ export default async function handler(req, res) {
 
         const buffer = Buffer.from(response.data);
 
-        // 2. Get best available GoFile upload server
-        const serverRes = await axios.get('https://api.gofile.io/servers');
-        const server = serverRes.data.data.servers[0].name;
-
-        // 3. Build multipart form
+        // 2. Build multipart form with userhash
         const form = new FormData();
-        form.append('file', buffer, {
+        form.append('reqtype', 'fileupload');
+        form.append('userhash', process.env.CATBOX_USERHASH); // store in Vercel env vars
+        form.append('fileToUpload', buffer, {
             filename: fileName || 'video.mp4',
             contentType: 'video/mp4'
         });
 
-        // 4. Upload to GoFile
+        // 3. Upload to Catbox
         const uploadResponse = await axios.post(
-            `https://${server}.gofile.io/uploadFile`,
+            'https://catbox.moe/user/api.php',
             form,
             {
                 headers: { ...form.getHeaders() },
@@ -40,26 +38,21 @@ export default async function handler(req, res) {
             }
         );
 
-        const data = uploadResponse.data;
+        const result = uploadResponse.data.toString().trim();
 
-        // 5. Validate response
-        if (data.status !== 'ok') {
+        // 4. Validate response
+        if (!result.startsWith('https://files.catbox.moe/')) {
             return res.status(422).json({
                 status: 'API_REJECTION',
-                gofile_response: data,
+                catbox_response: result,
                 debug_info: {
                     file_size_bytes: buffer.length,
-                    server_used: server
+                    content_type_header: form.getHeaders()['content-type']
                 }
             });
         }
 
-        // Returns the shareable download page URL
-        return res.status(200).json({
-            url: data.data.downloadPage,   // https://gofile.io/d/XXXXXX
-            fileId: data.data.fileId,
-            server: server
-        });
+        return res.status(200).send(result);
 
     } catch (error) {
         return res.status(500).json({
