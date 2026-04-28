@@ -7,58 +7,58 @@ export default async function handler(req, res) {
     if (!videoUrl) return res.status(400).send("Error: Missing videoUrl");
 
     try {
-        // 1. Download video from the source
+        // 1. Fetch Video from Source
         const response = await axios({
             url: videoUrl,
             method: 'GET',
             responseType: 'arraybuffer',
-            headers: { 
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' 
-            },
-            timeout: 10000 
+            headers: { 'User-Agent': 'Mozilla/5.0' }
         });
 
         const buffer = Buffer.from(response.data);
 
-        // 2. Construct the Form with strict ordering
+        // 2. Build Form (Strict Order for Catbox PHP Backend)
         const form = new FormData();
-        // reqtype MUST be "fileupload"
-        form.append('reqtype', 'fileupload');
+        form.append('reqtype', 'fileupload'); // Required by Catbox API
         form.append('fileToUpload', buffer, {
             filename: fileName || 'video.mp4',
             contentType: 'video/mp4'
         });
 
-        // 3. Post using getBuffer() to guarantee the multipart boundary
+        const headers = form.getHeaders();
+
+        // 3. Post and Capture Exact Response
         const catboxResponse = await axios.post('https://catbox.moe/user/api.php', form.getBuffer(), {
             headers: {
-                ...form.getHeaders(),
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Connection': 'keep-alive'
+                ...headers,
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
             },
-            maxContentLength: Infinity,
-            maxBodyLength: Infinity,
             timeout: 30000 
         });
 
         const result = catboxResponse.data.toString().trim();
-        
-        if (result.includes("https://files.catbox.moe/")) {
-            return res.status(200).send(result);
-        } else {
+
+        // If it's not a URL, it's an error. Return the exact data.
+        if (!result.includes("https://files.catbox.moe/")) {
             return res.status(422).json({
-                error: "Catbox Rejected Request",
-                raw: result,
-                debug: {
+                status: "API_REJECTION",
+                catbox_response: result, // This will show "Invalid uploader" or other errors
+                debug_info: {
                     sent_reqtype: "fileupload",
-                    received_size: buffer.length
+                    file_size_bytes: buffer.length,
+                    content_type_header: headers['content-type']
                 }
             });
         }
 
+        return res.status(200).send(result);
+
     } catch (error) {
-        const status = error.response ? error.response.status : 500;
-        const msg = error.response ? error.response.data.toString() : error.message;
-        return res.status(status).send(`Proxy Error: ${msg}`);
+        // Capture exact crash reasons (Timeout, SSL, 403, etc.)
+        return res.status(500).json({
+            status: "FUNCTION_CRASH",
+            message: error.message,
+            stack: error.response ? error.response.data.toString() : "No stack trace available"
+        });
     }
 }
