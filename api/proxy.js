@@ -4,48 +4,33 @@ export default async function handler(req, res) {
     if (!videoUrl) return res.status(400).send("Error: Missing videoUrl");
 
     try {
-        // 1. Fetch video from source using native fetch
+        // 1. Download safe, uncorrupted MP4 from Instagram using Vercel's clean IP
         const response = await fetch(videoUrl, {
             headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
         });
 
         if (!response.ok) throw new Error(`Fetch failed: ${response.statusText}`);
-
-        // 2. Convert to Blob
         const videoBlob = await response.blob();
 
-        // 3. Build multipart form using NATIVE FormData
+        // 2. Upload to Pomf (which allows Vercel connections)
         const formData = new FormData();
-        formData.append('reqtype', 'fileupload');
-        formData.append('userhash', "66de6ba5258e90b67b0909a36"); // Keep your hash here
-        formData.append('fileToUpload', videoBlob, fileName || 'video.mp4');
+        formData.append('files[]', videoBlob, fileName || 'video.mp4');
 
-        // 4. Upload to Catbox
-        // Native fetch handles the "multipart/form-data" boundaries automatically!
-        const catboxResponse = await fetch('https://catbox.moe/user/api.php', {
+        const uploadResponse = await fetch('https://pomf.lain.la/upload.php', {
             method: 'POST',
             body: formData
         });
 
-        const result = await catboxResponse.text();
+        const result = await uploadResponse.json();
 
-        // 5. Validate response
-        if (result.includes('https://files.catbox.moe/')) {
-            return res.status(200).send(result.trim());
+        // 3. Return the new video URL to your InfinityFree server
+        if (result.success && result.files && result.files.length > 0) {
+            return res.status(200).send(result.files[0].url);
         } else {
-            return res.status(422).json({
-                status: 'API_REJECTION',
-                catbox_response: result, // Will now show the actual error message
-                debug_info: {
-                    url: videoUrl
-                }
-            });
+            return res.status(422).json({ error: 'Upload Rejected', details: result });
         }
 
     } catch (error) {
-        return res.status(500).json({
-            status: 'FUNCTION_CRASH',
-            message: error.message
-        });
+        return res.status(500).json({ status: 'CRASH', message: error.message });
     }
 }
