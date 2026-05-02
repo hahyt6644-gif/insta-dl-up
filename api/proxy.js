@@ -1,36 +1,55 @@
+import axios from 'axios';
+import FormData from 'form-data';
+
 export default async function handler(req, res) {
-    const { videoUrl, fileName } = req.query;
+    const { videoUrl, id, fileName } = req.query;
 
-    if (!videoUrl) return res.status(400).send("Error: Missing videoUrl");
+    // --- UPLOAD LOGIC ---
+    if (videoUrl) {
+        try {
+            const videoRes = await axios.get(videoUrl, { responseType: 'arraybuffer' });
+            const form = new FormData();
+            form.append('files[]', Buffer.from(videoRes.data), fileName || 'video.mp4');
 
-    try {
-        // 1. Download safe, uncorrupted MP4 from Instagram using Vercel's clean IP
-        const response = await fetch(videoUrl, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
-        });
+            const uploadRes = await axios.post('https://qu.ax/upload', form, {
+                headers: form.getHeaders()
+            });
 
-        if (!response.ok) throw new Error(`Fetch failed: ${response.statusText}`);
-        const videoBlob = await response.blob();
-
-        // 2. Upload to Pomf (which allows Vercel connections)
-        const formData = new FormData();
-        formData.append('files[]', videoBlob, fileName || 'video.mp4');
-
-        const uploadResponse = await fetch('https://pomf.lain.la/upload.php', {
-            method: 'POST',
-            body: formData
-        });
-
-        const result = await uploadResponse.json();
-
-        // 3. Return the new video URL to your InfinityFree server
-        if (result.success && result.files && result.files.length > 0) {
-            return res.status(200).send(result.files[0].url);
-        } else {
-            return res.status(422).json({ error: 'Upload Rejected', details: result });
+            if (uploadRes.data.success) {
+                const quaxUrl = uploadRes.data.files[0].url;
+                const fileId = quaxUrl.split('/').pop();
+                // This returns the clean URL you want!
+                return res.status(200).send(`https://${req.headers.host}/${fileId}.mp4`);
+            }
+            return res.status(422).json(uploadRes.data);
+        } catch (err) {
+            return res.status(500).send("Upload Error: " + err.message);
         }
-
-    } catch (error) {
-        return res.status(500).json({ status: 'CRASH', message: error.message });
     }
+
+    // --- MIRROR LOGIC (.mp4 handler) ---
+    if (id) {
+        // Strip .mp4 if it was passed in the query ID
+        const cleanId = id.replace('.mp4', '');
+        const targetUrl = `https://qu.ax/x/${cleanId}.mp4`;
+
+        try {
+            const stream = await axios.get(targetUrl, {
+                headers: {
+                    'Referer': `https://qu.ax/${cleanId}.mp4/`,
+                    'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K)'
+                },
+                responseType: 'arraybuffer'
+            });
+
+            // Tell the browser this IS a video file
+            res.setHeader('Content-Type', 'video/mp4');
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            return res.send(stream.data);
+        } catch (err) {
+            return res.status(404).send("Video not found or Qu.ax blocked the request.");
+        }
+    }
+
+    return res.status(400).send("Usage: /upload?videoUrl=LINK or /ID.mp4");
 }
