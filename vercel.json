@@ -1,0 +1,6 @@
+{
+  "rewrites": [
+    { "source": "/:id.mp4", "destination": "/api/proxy?id=:id" },
+    { "source": "/upload", "destination": "/api/proxy" }
+  ]
+}
